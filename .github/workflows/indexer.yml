@@ -1,0 +1,32 @@
+# Pings the deployed /api/indexer endpoint on a schedule so the serverless
+# indexer keeps Turso fresh without a Vercel Pro account.
+#
+# Cadence math (private repo: 2,000 free Actions minutes/month, billed per
+# job-minute): hourly ~ 720 min/mo, fits the free tier. Every 5 minutes
+# ~ 8,640 min/mo and needs a public repo (Actions are free there) or paid
+# minutes. The endpoint is idempotent and lock-guarded, so overlapping or
+# redundant schedulers are always safe.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   INDEXER_URL     https://<your-app>.vercel.app/api/indexer
+#   INDEXER_SECRET  same value as the Vercel env var
+name: indexer cycle
+
+on:
+  schedule:
+    - cron: "*/5 * * * *" # hourly; "*/5 * * * *" if the repo becomes public
+  workflow_dispatch: {}
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger catch-up cycle
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o "$RUNNER_TEMP/res.json" -w '%{http_code}' --max-time 120 \
+            --url "${{ secrets.INDEXER_URL }}" \
+            --header "Authorization: Bearer ${{ secrets.INDEXER_SECRET }}")
+          echo "HTTP $code: $(cat "$RUNNER_TEMP/res.json")"
+          test "$code" = "200"
